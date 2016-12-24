@@ -35,7 +35,7 @@
       with_items: "{{ phpcs.standards }}"
 
     - name: Run HtmlCS
-      shell: "htmlcs {{ testing_url }}/{{ item.value.path }} {{ item.value.standard }} table > {{ reports.dir }}/htmlcs.{{ item.key }}.txt"
+      shell: "htmlcs {{ testing_url }}/{{ item.value.path }} {{ item.value.standard }} > {{ reports.dir }}/htmlcs.{{ item.key }}.txt"
       with_dict: "{{ htmlcs }}"
 
     - include: tasks/misc/report-link.yml
