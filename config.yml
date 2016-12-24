@@ -1,0 +1,35 @@
+# WARNING! This file is not managed by Ansible and should not contain any usage of its features.
+---
+cmf: drupal
+core: 8
+project: cikit-test
+site_url: https://cikit-test.dev
+tmproot: /tmp
+webroot: /var/www
+selenium: http://selenium-release.storage.googleapis.com/2.53/selenium-server-standalone-2.53.1.jar
+profile: pp
+settings: sites/default/settings.php
+filesystem: sites/default/files
+composer_packages:
+  drush/drush: 8.*
+  squizlabs/php_codesniffer: 2.*
+vm:
+  ip: 192.168.56.132
+  forwarded_port:
+    - host: 8081
+      guest: 80
+    - host: 8083
+      guest: 3306
+    - host: 4444
+      guest: 4444
+  virtualbox:
+    modifyvm:
+      cpus: 2
+      memory: 2048
+      natdnshostresolver1: "on"
+  synced_folder:
+    - source: ./
+      target: /var/www
+      exclude:
+        - .idea/
+        - .git/

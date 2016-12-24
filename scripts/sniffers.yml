@@ -1,0 +1,82 @@
+---
+- hosts: localhost
+  gather_facts: no
+  connection: local
+  become: yes
+
+  vars_files:
+    - ../config.yml
+    - vars/main.yml
+    - vars/tests.yml
+
+  tasks:
+    - include: tasks/environment/initialize.yml
+
+    - name: Create directory for reports
+      file:
+        path: "{{ reports.dir }}"
+        mode: 0755
+        state: "{{ item }}"
+      with_items: ["absent", "directory"]
+
+    - name: Run CodeSniffer
+      shell: "phpcs --standard={{ item }} --extensions={{ phpcs.extensions | join(',') }} -n {{ scan_dirs | join(' ') }} > {{ reports.dir }}/phpcs.{{ item }}.txt"
+      args:
+        chdir: "{{ project_workspace }}"
+      with_items: "{{ phpcs.standards }}"
+      # Needed for ignoring PHP notices in packages with sniffers.
+      ignore_errors: yes
+
+    - include: tasks/misc/report-link.yml
+      args:
+        data:
+          type: "phpcs.{{ item }}"
+          title: "[PHPCS] {{ item }}"
+      with_items: "{{ phpcs.standards }}"
+
+    - name: Run HtmlCS
+      shell: "htmlcs {{ testing_url }}/{{ item.value.path }} {{ item.value.standard }} table > {{ reports.dir }}/htmlcs.{{ item.key }}.txt"
+      with_dict: "{{ htmlcs }}"
+
+    - include: tasks/misc/report-link.yml
+      args:
+        data:
+          type: "htmlcs.{{ item.key }}"
+          title: "[HTMLCS] {{ item.key }}"
+      with_dict: "{{ htmlcs }}"
+
+    - name: Run JSHint
+      shell: 'find {{ item }} ! -path "*mute*" -type f \( -iname "*.js" ! -iname "*min.js" \) -print0 | sudo xargs -0 jshint > {{ reports.dir }}/jshint.txt'
+      args:
+        chdir: "{{ project_workspace }}"
+      with_items: "{{ scan_dirs }}"
+      # Needed for ignoring exit status codes.
+      ignore_errors: yes
+
+    - include: tasks/misc/report-link.yml
+      args:
+        data:
+          type: "jshint"
+          title: "JS Hint"
+
+    - name: Run SCSSLint
+      shell: 'find {{ item }} -name "*.scss" -print0 | xargs -0 -r scss-lint -c ../scripts/configs/scss-lint.yml > {{ reports.dir }}/scsslint.txt'
+      args:
+        chdir: "{{ project_workspace }}"
+      with_items: "{{ scan_dirs }}"
+      # Needed for ignoring exit status codes.
+      ignore_errors: yes
+
+    - include: tasks/misc/report-link.yml
+      args:
+        data:
+          type: "scsslint"
+          title: "SCSS Lint"
+
+    - name: "Check existence of custom sniffers for {{ cmf | capitalize }}"
+      stat:
+        path: tasks/sniffers/main.yml
+      register: is_custom_sniffers
+
+    - include: "{{ is_custom_sniffers.stat.path }}"
+      when: "{{ is_custom_sniffers.stat.exists }}"
