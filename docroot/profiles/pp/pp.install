@@ -20,8 +20,9 @@ function pp_install() {
   }
 
   // Assign user 1 the "administrator" role.
+  // The "roles" property is ommitted for "$user".
   $user = User::load(1);
-  $user->roles[] = 'administartor';
+  $user->roles[] = 'administrator';
   $user->save();
 
   foreach ([
