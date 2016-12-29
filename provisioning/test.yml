@@ -1,19 +1,11 @@
 ---
 - hosts: localhost
-  gather_facts: no
-
-  vars_files:
-    - ../config.yml
-    - vars/ports.yml
-    - vars/mysql.yml
-    - vars/nginx.yml
-    - vars/apache.yml
+  connection: local
+#  gather_facts: yes
 
   vars:
-    list:
-      - ubuntu
-      - cikit01
-      - cikit02
+    site_url: https://cibox06.m2.propeople.com.ua/test1_build_1
 
   tasks:
-    - debug: msg="{{ list | select('match', 'cikit') | list | count }}"
+    - debug:
+        msg: '{{ site_url.rpartition("//")[-1].partition("/")[0] | regex_escape }}$'

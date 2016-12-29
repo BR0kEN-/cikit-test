@@ -19,7 +19,6 @@
 
     - name: cikit_nodejs_version
       prompt: Which version of Node.js you'd want to install? (4/5/6)
-      default: skip
       private: no
       tags: ["nodejs", "phantomjs"]
 
@@ -94,18 +93,24 @@
     - include: tasks/detect-vagrant.yml
       tags: ["always"]
 
-    - include: tasks/project-variable.yml
-      when: not vagrant
-      tags: ["always"]
-
     - name: "Obtain home directory of \"{{ ansible_user }}\" user"
       shell: "eval echo ~{{ ansible_user }}"
       register: user_home
       tags: ["always"]
 
+    - include: tasks/project-variable.yml
+      when: not vagrant
+      tags: ["jenkins"]
+
     - name: Set name for Jenkins job
       set_fact:
         jenkins_job: "{{ project }}"
+      when: not vagrant
+      tags: ["jenkins"]
+
+    - name: Configure hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
       when: not vagrant
       tags: ["always"]
 
@@ -164,7 +169,7 @@
       tags: ["nginx", "php-stack", "security"]
       when: not vagrant
 
-    - role: ansible-role-apache
+    - role: cikit-apache
       tags: ["apache", "php-stack"]
 
     - role: cikit-php

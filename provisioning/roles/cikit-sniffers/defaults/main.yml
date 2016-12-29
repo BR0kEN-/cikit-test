@@ -1,8 +1,8 @@
 ---
-git_repos:
+coding_standards:
   Drupal:
-    branch: 7.x-2.x
-    repo: https://github.com/klausi/coder.git
+    branch: 8.x-2.x
+    repo: git://git.drupal.org/project/coder.git
 
   DrupalSecure:
     branch: master
@@ -10,7 +10,7 @@ git_repos:
 
   Security:
     branch: master
-    repo: https://github.com/podarok/phpcs-security-audit.git
+    repo: https://github.com/FloeDesignTechnologies/phpcs-security-audit.git
 
   Symfony2:
     branch: master
@@ -24,8 +24,11 @@ git_repos:
     branch: 2.0.7
     repo: https://github.com/squizlabs/HTML_CodeSniffer.git
 
-npm_packages:
-  - jshint
-
-gem_packages:
-  - scss-lint
+packages:
+  npm:
+    - eslint
+  gem:
+    # @todo Sass 3.5 will no longer support Ruby 1.9.3. Please upgrade to Ruby 2.0.0 or greater ASAP.
+    - scss-lint
+  pip:
+    - codespell

@@ -14,4 +14,4 @@ htmlcs:
     standard: Section508
 
 scan_dirs:
-  - "core/modules/action"
+  - "profiles/{{ profile }}/*/custom"
