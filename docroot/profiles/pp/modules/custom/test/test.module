@@ -1,0 +1,6 @@
+<?php
+
+function test_test ()
+{
+    return 12;
+}
