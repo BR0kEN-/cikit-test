@@ -21,7 +21,7 @@ function pp_install() {
 
   // Assign user 1 the "administrator" role.
   $user = User::load(1);
-  $user->roles[] = 'administrator';
+  $user->roles[] = 'administartor';
   $user->save();
 
   foreach ([
