@@ -1,0 +1,178 @@
+require "yaml"
+
+VAGRANT_API_VERSION ||= "2"
+VAGRANT_MIN_VERSION ||= "1.8.0"
+ANSIBLE_MIN_VERSION ||= "2.1.0"
+
+Vagrant.require_version ">= #{VAGRANT_MIN_VERSION}"
+
+# Basic variables.
+arguments = ARGV.join(" ")
+isCygwin = Vagrant::Util::Platform.cygwin?
+configValues = YAML::load_file("config.yml")
+
+if isCygwin
+  # Prevent "hostsupdater" to fail with impossibility to write hosts.
+  # TODO: Remove this requirement since running of VMs must not use admin privileges.
+  if not Vagrant::Util::Platform.windows_admin?
+    puts "You have to run Cygwin with administrative privileges to continue."
+    exit 6
+  end
+
+  # Prevent closing connection.
+  # https://github.com/ansible/ansible/issues/6363#issuecomment-49349902
+  ENV["ANSIBLE_SSH_ARGS"] = "-o ControlMaster=no"
+end
+
+# Check whether CIKit cannot be bootstrapped properly.
+if (arguments.include?("up") or arguments.include?("provision")) and not arguments.include?("no-provision")
+  ANSIBLE = `bash -c "which ansible"`.chomp
+
+  if ANSIBLE.empty?
+    puts "You have to install Ansible #{ANSIBLE_MIN_VERSION} or better before continue."
+    exit 1
+  end
+
+  # TODO: Find a way to run this on Cygwin!
+  if not isCygwin and Gem::Version.new(`#{ANSIBLE} --version | head -n1 | awk '{print $2}'`) < Gem::Version.new(ANSIBLE_MIN_VERSION)
+    puts "Installed version of Ansible must not be lower than #{ANSIBLE_MIN_VERSION}."
+    exit 2
+  end
+end
+
+# Ensure that configured IP ain't owned by other VM.
+# This should be executed even when machine state is already "running" to always
+# keep "hostsupdater" plugin updated. Otherwise it'll propose you to setup wrong IP.
+if ["up", "resume"].include?(ARGV[0])
+  VBoxManage = VagrantPlugins::ProviderVirtualBox::Driver::Meta.new
+
+  # The output looks like:
+  # "Windows7" {0c7dd8ed-8187-44c7-9d6e-c372305fb573}
+  # Iterate over the list of virtual machines.
+  VBoxManage.execute("list", "vms").scan(/".+?"/) do |vmName|
+    # The output looks like:
+    # Name: /VirtualBox/GuestInfo/Net/1/V4/IP, value: 192.168.59.101, timestamp: 1489077258093051000, flags: TRANSIENT, TRANSRESET
+    # Property "/VirtualBox/GuestInfo/Net/0/V4/IP" contains internal IP, like "10.0.2.15".
+    vmIp = VBoxManage.execute("guestproperty", "enumerate", vmName[1..-2], "--patterns", "/VirtualBox/GuestInfo/Net/1/V4/IP").gsub(/.*value:\s+(.+?),.*/, '\1').chomp
+
+    if not vmIp.empty? and vmIp == configValues["vm"]["ip"] and not vmName.include?(configValues["project"])
+      ipSections = vmIp.split(".")
+      # Increase last number of IP by 1.
+      ipSections[-1] = ipSections.last.to_i + 1
+
+      vmIp = ipSections.join(".")
+
+      puts "[IP conflict resolved]: #{configValues["vm"]["ip"]} (used by #{vmName}) was changed to #{vmIp}."
+      configValues["vm"]["ip"] = vmIp
+    end
+  end
+
+  # Smart "hostsupdater" plugin use configured IP of VM to clean up the hosts file, so we don't need to
+  # worry about this at the following commands: "destroy", "suspend", "reload", "halt".
+end
+
+ENV["VAGRANT_DEFAULT_PROVIDER"] = ENV.has_key?("VAGRANT_CI") && ENV["VAGRANT_CI"].include?("lxc") ? "lxc" : "virtualbox"
+
+if not Vagrant.has_plugin?("vagrant-hostsupdater")
+  system "vagrant plugin install vagrant-hostsupdater"
+end
+
+# Automatically load custom provisioners.
+Dir[".cikit/.vagrant/provisioners/*"].each do |file|
+  file += "/#{File.basename(file)}.rb"
+
+  if File.exist?(file)
+    require_relative file
+  end
+end
+
+Vagrant.configure(VAGRANT_API_VERSION) do |config|
+  # Use the box, depending on Vagrant provider.
+  config.vm.box_url = "http://propeople.com.ua/pub/CIKit_Ubuntu_16.04_LTS.box"
+  # Automatically name the box.
+  config.vm.box = File.basename(config.vm.box_url)
+  # The "hostsupdater" plugin insert this value to "hosts".
+  # The "site_url" will appear in "config.yml" via repository builder.
+  # See "scripts/repository.yml".
+  config.vm.hostname = configValues["site_url"].split('//').last
+  # Handle port collisions.
+  config.vm.usable_port_range = (10200..10500)
+
+  config.vm.post_up_message = "Documentation: https://github.com/BR0kEN-/cikit
+
+ ██████╗ ██╗    ██╗  ██╗ ██╗ ████████╗
+██╔════╝ ██║    ██║ ██╔╝ ██║ ╚══██╔══╝
+██║      ██║    █████╔╝  ██║    ██║
+██║      ██║    ██╔═██╗  ██║    ██║
+╚██████╗ ██║    ██║  ██╗ ██║    ██║
+ ╚═════╝ ╚═╝    ╚═╝  ╚═╝ ╚═╝    ╚═╝
+"
+
+  # Change the name of VM.
+  config.vm.define config.vm.hostname do |vm|
+  end
+
+  config.vm.provider :virtualbox do |vb|
+    vb.name = configValues["project"]
+
+    configValues["vm"]["virtualbox"]["modifyvm"].each do |key, value|
+      vb.customize ["modifyvm", :id, "--#{key}", "#{value}"]
+    end
+  end
+
+  config.vm.network :private_network,
+    :ip => "#{configValues["vm"]["ip"]}",
+    :lxc__bridge_name => "lxcbr0"
+
+  configValues["vm"]["forwarded_port"].each do |port|
+    if port["guest"] != "" && port["host"] != ""
+      config.vm.network :forwarded_port,
+        :host => port["host"].to_i,
+        :guest => port["guest"].to_i,
+        # https://github.com/mitchellh/vagrant/issues/8395#issuecomment-288379271
+        :host_ip => "127.0.0.1",
+        :auto_correct => true
+    end
+  end
+
+  configValues["vm"]["synced_folder"].each do |folder|
+    nfsVersion = folder["nfs"]["version"].to_i
+
+    config.vm.synced_folder folder["source"], folder["target"],
+      :id => folder["target"],
+      # Windows (https://github.com/coreos/coreos-vagrant/issues/185#issuecomment-145260933):
+      # - VBoxSF cannot be used due to "Text file busy" error (https://github.com/ansible/ansible/issues/9526#issue-48225420).
+      # - NFS cannot be used due to "Device or resource busy - directory may be a mount point?" error.
+      :type => isCygwin ? "rsync" : "nfs",
+      :nfs_udp => folder["nfs"]["udp"],
+      :nfs_version => nfsVersion.between?(2, 4) ? nfsVersion : 3,
+      :rsync__args => ["--verbose", "--archive", "--delete", "-z", "--chmod=ugo=rwX"],
+      :rsync__exclude => folder["excluded_paths"]
+  end
+
+  config.vm.provision :cikit,
+    :controller => "./cikit",
+    :playbook => ".cikit/provision"
+
+  if ENV["REINSTALL"]
+    config.vm.provision :shell,
+      :keep_color => true,
+      :inline => "cikit reinstall"
+  end
+
+  # Create Selenium hub.
+  config.vm.provision :shell,
+    :keep_color => true,
+    :inline => "cikit tests",
+    :run => "always"
+
+  # Create Selenium node.
+  config.vm.provision :cikit,
+    :controller => "./selenium.sh",
+    :playbook => "#{configValues["selenium"]}",
+    :run => "always"
+
+  config.ssh.shell = "sh"
+  config.ssh.insert_key = false
+  config.ssh.forward_agent = true
+end

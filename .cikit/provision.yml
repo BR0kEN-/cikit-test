@@ -1,0 +1,259 @@
+---
+- hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars_files:
+    - ../config.yml
+    - vars/ruby.yml
+    - vars/solr.yml
+    - vars/ports.yml
+    - vars/mysql.yml
+    - vars/nginx.yml
+    - vars/apache.yml
+    - vars/security.yml
+
+  vars_prompt:
+    - name: php_version
+      prompt: Which version of PHP you'd want to install? (5.6/7.0/7.1)
+      default: 7.1
+      private: no
+      tags: ["php", "php-stack"]
+
+    - name: nodejs_version
+      prompt: Which version of Node.js you'd want to install? (4/5/6/7)
+      default: 6
+      private: no
+      tags: ["nodejs", "phantomjs"]
+
+    - name: ruby_version
+      prompt: Which version of Ruby you'd want to install? (2.1.10/2.2.6/2.3.3/2.4.0)
+      default: 2.4.0
+      private: no
+      tags: ["sniffers", "sass", "ruby"]
+
+    - name: solr_version
+      prompt: Which version of Solr you'd want to install? (5.5.4/6.5.1/no)
+      default: "no"
+      private: no
+      tags: ["solr"]
+
+    - name: http_auth_user
+      prompt: Username for HTTP authentication
+      default: admin
+      private: no
+      # WARNING!!! This condition will be processed only inside of Vagrantfile! The "vagrant"
+      # variable is undefined here and "when" construction aren't processed by Ansible for prompts.
+      when: not vagrant
+      tags: ["security"]
+
+    - name: http_auth_pass
+      prompt: Password for HTTP authentication
+      default: password
+      private: yes
+      # WARNING!!! This condition will be processed only inside of Vagrantfile! The "vagrant"
+      # variable is undefined here and "when" construction aren't processed by Ansible for prompts.
+      when: not vagrant
+      tags: ["security"]
+
+  vars:
+    basic_packages:
+      apt:
+        - git
+        - tar
+        - vim
+        - curl
+        - htop
+        - make
+        - time
+        - tree
+        - rsync
+        - unzip
+        - python
+        - python-dev
+        - python-pycurl
+        - python-passlib
+        - python-simplejson
+        - python-software-properties
+        - libmagickcore-dev
+        - libmagickwand-dev
+        - libmysqlclient-dev
+        - imagemagick
+        - apparmor-utils
+        - bsdutils
+        - build-essential
+        - software-properties-common
+        - libffi-dev
+        - libssl-dev
+        - rng-tools
+        - zlib1g-dev
+        # Needed for "rbenv".
+        - libreadline-dev
+
+      pip:
+        - setuptools
+        - paramiko
+        - pyyaml
+        - jinja2
+        - markupsafe
+        - MySQL-python
+        - ansible
+
+  pre_tasks:
+    - name: Check Ansible compatibility
+      fail:
+        msg: "Continuation is possible only with Ansible 2.2.x on host machine."
+      when: "ansible_version.major < 2 and ansible_version.minor < 2"
+      tags: ["always"]
+
+    - name: Check whether virtual machine will be provisioned
+      set_fact:
+        vagrant: "{{ ansible_host is defined and '127.0.0.1' == ansible_host }}"
+      tags: ["always"]
+
+    - name: Obtain home directory of "{{ ansible_user }}" user
+      shell: "eval echo ~{{ ansible_user }}"
+      register: user_home
+      tags: ["always"]
+
+    - include: tasks/project-variable.yml
+      when: not vagrant and not jenkins_reinstall_deb
+      tags: ["jenkins"]
+
+    - name: Set name for Jenkins job
+      set_fact:
+        jenkins_job: "{{ project }}"
+      when: not vagrant and not jenkins_reinstall_deb
+      tags: ["jenkins"]
+
+    - name: Configure hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+      when: not vagrant
+      tags: ["always"]
+
+    - name: Create CIKit command line utility
+      file:
+        src: "{{ webroot }}/cikit"
+        dest: /usr/bin/cikit
+        state: link
+      when: vagrant
+
+    - name: Generate Bash completion for CIKit utility
+      template:
+        src: templates/cikit.complete.sh.j2
+        dest: /etc/bash_completion.d
+      when: vagrant
+
+    - name: Process facts
+      set_fact: {"install_{{ item.key }}": "{{ item.value not in ['no', false] }}"}
+      with_dict:
+        solr: "{{ solr_version }}"
+      tags: ["always"]
+
+    - name: Spoof Sendmail if not installed
+      file:
+        src: /bin/true
+        path: /usr/sbin/sendmail
+        state: link
+        force: no
+
+    # https://github.com/propeoplemd/cibox/pull/349
+    - name: Recover possible fail
+      shell: dpkg --configure -a
+      ignore_errors: yes
+
+    - name: Install APT packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      register: cikit_apt_needs_cache_update
+      with_items: "{{ basic_packages.apt }}"
+
+    - name: Update APT cache
+      apt:
+        update_cache: yes
+      # Update cache only if new packages were installed.
+      when: cikit_apt_needs_cache_update.changed
+
+    - name: Install EasyInstall and PIP
+      shell: "[ $(which {{ item.tool }}) ] || {{ item.script }}"
+      args:
+        warn: no
+        executable: /bin/bash
+      # "with_dict" cannot be used since ordering of operations is important!
+      with_items:
+        - tool: easy_install
+          script: "curl -s https://raw.githubusercontent.com/ActiveState/ez_setup/v0.9/ez_setup.py | python"
+
+        - tool: pip
+          script: "easy_install pip"
+
+    - name: Install PIP packages
+      pip:
+        name: "{{ item }}"
+        state: latest
+      with_items: "{{ basic_packages.pip }}"
+
+  roles:
+    - role: cikit-security
+      tags: ["security"]
+
+    - role: cikit-nginx
+      when: not vagrant
+      tags: ["nginx", "php-stack", "security"]
+
+    - role: cikit-apache
+      tags: ["apache", "php-stack"]
+
+    - role: cikit-php
+      tags: ["php", "php-stack"]
+
+    - role: cikit-nodejs
+      tags: ["nodejs"]
+
+    - role: cikit-phantomjs
+      tags: ["phantomjs"]
+
+    - role: cikit-composer
+      tags: ["composer", "php-stack"]
+
+    - role: cikit-mysql
+      tags: ["mysql", "php-stack"]
+
+    - role: cikit-java
+      tags: ["java", "solr", "sniffers", "jenkins"]
+
+    - role: cikit-solr
+      when: install_solr
+      tags: ["solr", "php-stack"]
+
+    - role: cikit-ruby
+      tags: ["sniffers", "sass", "ruby"]
+
+    - role: cikit-sniffers
+      tags: ["sniffers", "php-stack"]
+
+    - role: ansible-role-memcached
+      tags: ["memcache", "php-stack"]
+
+    - role: cikit-selenium
+      tags: ["selenium"]
+
+    - role: cikit-jenkins
+      when: not vagrant
+      tags: ["jenkins"]
+
+  tasks:
+    - name: Starting random rnd-tools service
+      shell: rngd -r /dev/urandom
+      when: not vagrant and ansible_virtualization_type != "openvz"
+      tags: ["always"]
+
+    - name: Restart service
+      service:
+        name: "{{ item }}"
+        state: restarted
+      ignore_errors: yes
+      with_items: ["apache2", "nginx"]
+      tags: ["always"]

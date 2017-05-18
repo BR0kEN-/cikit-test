@@ -1,0 +1,29 @@
+---
+cikit_sniffers:
+  packages:
+    npm:
+      - eslint
+    pip:
+      - codespell
+
+  coding_standards:
+    dest: /usr/share/coding-standards
+    list:
+      Drupal:
+        version: 8.x-2.x
+        repo: git://git.drupal.org/project/coder.git
+      DrupalSecure:
+        version: master
+        repo: http://git.drupal.org/sandbox/coltrane/1921926.git
+      Security:
+        version: master
+        repo: https://github.com/FloeDesignTechnologies/phpcs-security-audit.git
+      Symfony2:
+        version: master
+        repo: https://github.com/podarok/Symfony2-coding-standard.git
+      WordPress:
+        version: master
+        repo: https://github.com/WordPress-Coding-Standards/WordPress-Coding-Standards.git
+      HTML:
+        version: 2.0.7
+        repo: https://github.com/squizlabs/HTML_CodeSniffer.git

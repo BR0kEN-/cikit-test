@@ -1,0 +1,38 @@
+---
+- name: Clone Git repositories
+  git:
+    repo: "{{ item.value.repo }}"
+    dest: "{{ cikit_sniffers.coding_standards.dest }}/{{ item.key }}"
+    version: "{{ item.value.version }}"
+  with_dict: "{{ cikit_sniffers.coding_standards.list }}"
+
+- name: Create HTMLCS binary
+  template:
+    src: htmlcs.j2
+    dest: /usr/local/bin/htmlcs
+    mode: a+x
+
+- name: Find all installed PHPCS standards
+  find:
+    path: "{{ cikit_sniffers.coding_standards.dest }}"
+    pattern: "ruleset.xml"
+    recurse: yes
+  register: rulesets
+
+- name: Deregister all PHPCS standards
+  shell: "phpcs --config-delete installed_paths"
+
+- name: Register all found PHPCS standards
+  shell: "phpcs --config-set installed_paths {{ rulesets.files | selectattr('path') | map(attribute='path') | map('dirname') | map('dirname') | unique | join(',') }}"
+
+- name: Install NPM packages
+  npm:
+    name: "{{ item }}"
+    global: yes
+  with_items: "{{ cikit_sniffers.packages.npm }}"
+
+- name: Install PIP packages
+  pip:
+    name: "{{ item }}"
+    state: latest
+  with_items: "{{ cikit_sniffers.packages.pip }}"

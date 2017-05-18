@@ -1,0 +1,47 @@
+# WARNING! This file is not managed by Ansible and should not contain any usage of its features.
+---
+cmf: drupal
+core: 7
+project: cikit-test
+site_url: https://cikit-test.dev
+tmproot: /tmp
+webroot: /var/www
+selenium: http://selenium-release.storage.googleapis.com/2.53/selenium-server-standalone-2.53.1.jar
+profile: pp
+settings: sites/default/settings.php
+filesystem: sites/default/files
+composer_packages:
+  drush/drush: 8.*
+  squizlabs/php_codesniffer: 2.*
+vm:
+  ip: 192.168.56.132
+  forwarded_port:
+    - host: 8081
+      guest: 80
+    - host: 8083
+      guest: 3306
+    - host: 4444
+      guest: 4444
+  virtualbox:
+    modifyvm:
+      cpus: 1
+      memory: 2048
+      natdnshostresolver1: "on"
+  synced_folder:
+    - source: ./
+      target: /var/www
+      # For "rsync" only (Cygwin).
+      exclude:
+        - .vagrant/
+        - .idea/
+        - .git/
+      # Not supported on Cygwin.
+      nfs:
+        # If you're using guest machine more often than host for manipulating
+        # by big file data, then you should configure NFS over TCP connection
+        # to prevent hangs. Generally it's not recommended and we suggest to
+        # use mounted folder on your host. But you may choose.
+        # https://github.com/mitchellh/vagrant/issues/2304
+        udp: true
+        # Do not change this option if don't understand what you're doing!
+        version: 3
